@@ -6,10 +6,18 @@ Atenxion EMR is a reference implementation of an electronic medical record syste
 ## Local Development
 1. Install dependencies with `npm install`.
 2. Start both the API and web dev servers:
-   ```bash
-   npm run dev
-   ```
-   The API runs on `http://localhost:8080` and the web client on `http://localhost:5173`.
+    ```bash
+    npm run dev
+    ```
+    The API runs on `http://localhost:8080` and the web client on `http://localhost:5173`.
+
+## Production Build
+To run the compiled server with the start script, build the project first:
+```bash
+npm run build
+npm start
+```
+This compiles TypeScript to the `dist` directory required by `node dist/src/index.js`.
 
 ## MySQL Setup
 Provision a MySQL instance and set the `DATABASE_URL` and `DIRECT_URL` in `.env`.
