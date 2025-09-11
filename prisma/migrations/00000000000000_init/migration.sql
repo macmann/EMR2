@@ -1,1 +1,0 @@
--- Initial migration for MySQL (no extensions required)

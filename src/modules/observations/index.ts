@@ -1,8 +1,8 @@
-import { Router, Request, Response } from 'express';
-import { PrismaClient, Prisma, Observation } from '@prisma/client';
-import { z } from 'zod';
-import { requireAuth, requireRole, type AuthRequest } from '../auth/index.js';
-import { logDataChange } from '../audit/index.js';
+import { Router, Request, Response } from "express";
+import { PrismaClient, Prisma, Observation } from "@prisma/client";
+import { z } from "zod";
+import { requireAuth, requireRole, type AuthRequest } from "../auth/index.js";
+import { logDataChange } from "../audit/index.js";
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -17,152 +17,193 @@ const observationSchema = z.object({
   bmi: z.coerce.number().optional(),
 });
 
-router.post('/visits/:id/observations', requireAuth, requireRole('Doctor'), async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-  try {
-    z.string().uuid().parse(id);
-  } catch {
-    return res.status(400).json({ error: 'invalid id' });
+router.post(
+  "/visits/:id/observations",
+  requireAuth,
+  requireRole("Doctor"),
+  async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    try {
+      z.string().uuid().parse(id);
+    } catch {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const visit = await prisma.visit.findUnique({ where: { visitId: id } });
+    if (!visit) return res.sendStatus(404);
+    const parsed = observationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const obs = await prisma.observation.create({
+      data: {
+        visitId: id,
+        patientId: visit.patientId,
+        doctorId: visit.doctorId,
+        ...parsed.data,
+      },
+    });
+    await logDataChange(
+      req.user!.userId,
+      "observation",
+      obs.obsId,
+      undefined,
+      obs
+    );
+    res.status(201).json(obs);
   }
-  const visit = await prisma.visit.findUnique({ where: { visitId: id } });
-  if (!visit) return res.sendStatus(404);
-  const parsed = observationSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
-  }
-  const obs = await prisma.observation.create({
-    data: {
-      visitId: id,
-      patientId: visit.patientId,
-      doctorId: visit.doctorId,
-      ...parsed.data,
-    },
-  });
-  await logDataChange(req.user!.userId, 'observation', obs.obsId, undefined, obs);
-  res.status(201).json(obs);
-});
+);
 
-router.get('/visits/:id/observations', requireAuth, async (req: AuthRequest, res: Response) => {
-  const { id } = req.params;
-  try {
-    z.string().uuid().parse(id);
-  } catch {
-    return res.status(400).json({ error: 'invalid id' });
-  }
-  const visit = await prisma.visit.findUnique({ where: { visitId: id }, select: { patientId: true, visitDate: true } });
-  if (!visit) return res.sendStatus(404);
+router.get(
+  "/visits/:id/observations",
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    const { id } = req.params;
+    try {
+      z.string().uuid().parse(id);
+    } catch {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const visit = await prisma.visit.findUnique({
+      where: { visitId: id },
+      select: { patientId: true, visitDate: true },
+    });
+    if (!visit) return res.sendStatus(404);
 
-  const querySchema = z.object({
-    scope: z.enum(['visit', 'patient']).default('visit'),
-    author: z.enum(['me', 'any']).default('any'),
-    before: z.enum(['visit', 'none']).default('none'),
-    order: z.enum(['asc', 'desc']).default('desc'),
-    limit: z.coerce.number().int().positive().max(50).optional(),
-    offset: z.coerce.number().int().nonnegative().optional(),
-  });
-  const parsed = querySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
-  }
-  const { scope, author, before, order, limit = 20, offset = 0 } = parsed.data;
+    const querySchema = z.object({
+      scope: z.enum(["visit", "patient"]).default("visit"),
+      author: z.enum(["me", "any"]).default("any"),
+      before: z.enum(["visit", "none"]).default("none"),
+      order: z.enum(["asc", "desc"]).default("desc"),
+      limit: z.coerce.number().int().positive().max(50).optional(),
+      offset: z.coerce.number().int().nonnegative().optional(),
+    });
+    const parsed = querySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const {
+      scope,
+      author,
+      before,
+      order,
+      limit = 20,
+      offset = 0,
+    } = parsed.data;
 
-  if (scope === 'patient' && author === 'me' && before === 'visit') {
-    const orderSql = order === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
-    const rows = await prisma.$queryRaw<Observation[]>(Prisma.sql`
-      SELECT o.* FROM "Observation" o
-      JOIN "Visit" v ON o."visitId" = v."visitId"
-      WHERE o."patientId" = ${visit.patientId}
-        AND o."doctorId" = ${req.user!.userId}
-        AND v."visitDate" < ${visit.visitDate}
-      ORDER BY o."createdAt" ${orderSql}
+    if (scope === "patient" && author === "me" && before === "visit") {
+      const orderSql = order === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+      const rows = await prisma.$queryRaw<Observation[]>(Prisma.sql`
+      SELECT o.* FROM Observation o
+      JOIN Visit v ON o.visitId = v.visitId
+      WHERE o.patientId = ${visit.patientId}
+        AND o.doctorId = ${req.user!.userId}
+        AND v.visitDate < ${visit.visitDate}
+      ORDER BY o.createdAt ${orderSql}
       LIMIT ${limit} OFFSET ${offset}
     `);
-    return res.json(rows);
-  }
-
-  const where: any = {};
-  if (scope === 'visit') {
-    where.visitId = id;
-  } else {
-    where.patientId = visit.patientId;
-    if (before === 'visit') {
-      where.visit = { visitDate: { lt: visit.visitDate } };
+      return res.json(rows);
     }
-  }
-  if (author === 'me') {
-    where.doctorId = req.user!.userId;
-  }
-  const observations = await prisma.observation.findMany({
-    where,
-    orderBy: { createdAt: order },
-    take: limit,
-    skip: offset,
-  });
-  res.json(observations);
-});
 
-router.get('/patients/:patientId/observations', requireAuth, async (req: AuthRequest, res: Response) => {
-  const { patientId } = req.params;
-  try {
-    z.string().uuid().parse(patientId);
-  } catch {
-    return res.status(400).json({ error: 'invalid id' });
-  }
-
-  const querySchema = z.object({
-    author: z.enum(['me', 'any']).default('any'),
-    before_visit: z.string().uuid().optional(),
-    exclude_visit: z.string().uuid().optional(),
-    order: z.enum(['asc', 'desc']).default('desc'),
-    limit: z.coerce.number().int().positive().max(50).optional(),
-    offset: z.coerce.number().int().nonnegative().optional(),
-  });
-  const parsed = querySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
-  }
-  const { author, before_visit, exclude_visit, order, limit = 20, offset = 0 } = parsed.data;
-
-  let beforeDate: Date | undefined;
-  if (before_visit) {
-    const v = await prisma.visit.findUnique({ where: { visitId: before_visit }, select: { visitDate: true, patientId: true } });
-    if (!v || v.patientId !== patientId) {
-      return res.status(400).json({ error: 'invalid before_visit' });
+    const where: any = {};
+    if (scope === "visit") {
+      where.visitId = id;
+    } else {
+      where.patientId = visit.patientId;
+      if (before === "visit") {
+        where.visit = { visitDate: { lt: visit.visitDate } };
+      }
     }
-    beforeDate = v.visitDate;
+    if (author === "me") {
+      where.doctorId = req.user!.userId;
+    }
+    const observations = await prisma.observation.findMany({
+      where,
+      orderBy: { createdAt: order },
+      take: limit,
+      skip: offset,
+    });
+    res.json(observations);
   }
+);
 
-  if (author === 'me' && beforeDate) {
-    const orderSql = order === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
-    const excludeSql = exclude_visit ? Prisma.sql`AND o."visitId" <> ${exclude_visit}` : Prisma.empty;
-    const rows = await prisma.$queryRaw<Observation[]>(Prisma.sql`
-      SELECT o.* FROM "Observation" o
-      JOIN "Visit" v ON o."visitId" = v."visitId"
-      WHERE o."patientId" = ${patientId}
-        AND o."doctorId" = ${req.user!.userId}
+router.get(
+  "/patients/:patientId/observations",
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    const { patientId } = req.params;
+    try {
+      z.string().uuid().parse(patientId);
+    } catch {
+      return res.status(400).json({ error: "invalid id" });
+    }
+
+    const querySchema = z.object({
+      author: z.enum(["me", "any"]).default("any"),
+      before_visit: z.string().uuid().optional(),
+      exclude_visit: z.string().uuid().optional(),
+      order: z.enum(["asc", "desc"]).default("desc"),
+      limit: z.coerce.number().int().positive().max(50).optional(),
+      offset: z.coerce.number().int().nonnegative().optional(),
+    });
+    const parsed = querySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const {
+      author,
+      before_visit,
+      exclude_visit,
+      order,
+      limit = 20,
+      offset = 0,
+    } = parsed.data;
+
+    let beforeDate: Date | undefined;
+    if (before_visit) {
+      const v = await prisma.visit.findUnique({
+        where: { visitId: before_visit },
+        select: { visitDate: true, patientId: true },
+      });
+      if (!v || v.patientId !== patientId) {
+        return res.status(400).json({ error: "invalid before_visit" });
+      }
+      beforeDate = v.visitDate;
+    }
+
+    if (author === "me" && beforeDate) {
+      const orderSql = order === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+      const excludeSql = exclude_visit
+        ? Prisma.sql`AND o.visitId <> ${exclude_visit}`
+        : Prisma.empty;
+      const rows = await prisma.$queryRaw<Observation[]>(Prisma.sql`
+      SELECT o.* FROM Observation o
+      JOIN Visit v ON o.visitId = v.visitId
+      WHERE o.patientId = ${patientId}
+        AND o.doctorId = ${req.user!.userId}
         ${excludeSql}
-        AND v."visitDate" < ${beforeDate}
-      ORDER BY o."createdAt" ${orderSql}
+        AND v.visitDate < ${beforeDate}
+      ORDER BY o.createdAt ${orderSql}
       LIMIT ${limit} OFFSET ${offset}
     `);
-    return res.json(rows);
-  }
+      return res.json(rows);
+    }
 
-  const where: any = { patientId };
-  if (exclude_visit) where.visitId = { not: exclude_visit };
-  if (beforeDate) {
-    where.visit = { visitDate: { lt: beforeDate } };
+    const where: any = { patientId };
+    if (exclude_visit) where.visitId = { not: exclude_visit };
+    if (beforeDate) {
+      where.visit = { visitDate: { lt: beforeDate } };
+    }
+    if (author === "me") {
+      where.doctorId = req.user!.userId;
+    }
+    const observations = await prisma.observation.findMany({
+      where,
+      orderBy: { createdAt: order },
+      take: limit,
+      skip: offset,
+    });
+    res.json(observations);
   }
-  if (author === 'me') {
-    where.doctorId = req.user!.userId;
-  }
-  const observations = await prisma.observation.findMany({
-    where,
-    orderBy: { createdAt: order },
-    take: limit,
-    skip: offset,
-  });
-  res.json(observations);
-});
+);
 
 export default router;
