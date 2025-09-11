@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc && cd client && npm install && npm run build",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "dev": "concurrently -k -n API,WEB \"tsx watch src/index.ts\" \"cd client && npm run dev\"",
     "dev:api": "tsx watch src/index.ts",
     "dev:web": "cd client && npm run dev",
