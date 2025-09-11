@@ -11,13 +11,8 @@ Atenxion EMR is a reference implementation of an electronic medical record syste
    ```
    The API runs on `http://localhost:8080` and the web client on `http://localhost:5173`.
 
-## Neon PostgreSQL Setup
-Provision a PostgreSQL instance on [Neon](https://neon.tech) and set the `DATABASE_URL` and `DIRECT_URL` in `.env` (include `sslmode=require` for both). Enable the required extensions:
-```sql
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-CREATE EXTENSION IF NOT EXISTS btree_gin;
-```
+## MySQL Setup
+Provision a MySQL instance and set the `DATABASE_URL` and `DIRECT_URL` in `.env`.
 
 ## Migrations & Seeding
 Apply migrations and load demo data:
@@ -32,8 +27,8 @@ The OpenAPI specification is served at `/api/docs/openapi.json`.
 ## Deploying to Render
 1. Create a new Web Service and connect this repository.
 2. Configure environment variables:
-   - `DATABASE_URL` (with `sslmode=require`)
-   - `DIRECT_URL` (with `sslmode=require`)
+   - `DATABASE_URL`
+   - `DIRECT_URL`
    - `JWT_SECRET`
    - `RATE_LIMIT_WINDOW_MIN`
    - `RATE_LIMIT_MAX`
@@ -41,6 +36,6 @@ The OpenAPI specification is served at `/api/docs/openapi.json`.
 4. Start command: `npm start`
 
 ## Security Notes
-- TLS is enforced by using `sslmode=require` for database connections.
+- Configure TLS for database connections as required by your provider.
 - `express-rate-limit` protects patient and auth endpoints.
 - Patient contact details are masked in logs and API responses.
