@@ -41,6 +41,7 @@ async function main() {
     diagnoses: 0,
     medications: 0,
     labs: 0,
+    observations: 0,
   };
   const updated = {
     patients: 0,
@@ -49,6 +50,7 @@ async function main() {
     diagnoses: 0,
     medications: 0,
     labs: 0,
+    observations: 0,
   };
 
   // Patients
@@ -220,6 +222,55 @@ async function main() {
     }
   }
 
+  // Observations (from reports.csv)
+  for (const row of readCsv("reports.csv")) {
+    const visitId = visitMap.get(row.visitId);
+    const patientId = patientMap.get(row.patientId);
+    const doctorId = doctorMap.get(row.doctorId);
+    if (!visitId || !patientId || !doctorId) continue;
+
+    const existing = await prisma.observation.findFirst({
+      where: {
+        visitId,
+        noteText: row.noteText,
+        createdAt: new Date(row.createdAt),
+      },
+    });
+
+    if (existing) {
+      await prisma.observation.update({
+        where: { obsId: existing.obsId },
+        data: {
+          bpSystolic: row.bpSystolic ? parseInt(row.bpSystolic) : null,
+          bpDiastolic: row.bpDiastolic ? parseInt(row.bpDiastolic) : null,
+          heartRate: row.heartRate ? parseInt(row.heartRate) : null,
+          temperatureC: row.temperatureC ? parseFloat(row.temperatureC) : null,
+          spo2: row.spo2 ? parseInt(row.spo2) : null,
+          bmi: row.bmi ? parseFloat(row.bmi) : null,
+        },
+      });
+      updated.observations += 1;
+    } else {
+      await prisma.observation.create({
+        data: {
+          obsId: row.obsId,
+          visitId,
+          patientId,
+          doctorId,
+          noteText: row.noteText,
+          bpSystolic: row.bpSystolic ? parseInt(row.bpSystolic) : null,
+          bpDiastolic: row.bpDiastolic ? parseInt(row.bpDiastolic) : null,
+          heartRate: row.heartRate ? parseInt(row.heartRate) : null,
+          temperatureC: row.temperatureC ? parseFloat(row.temperatureC) : null,
+          spo2: row.spo2 ? parseInt(row.spo2) : null,
+          bmi: row.bmi ? parseFloat(row.bmi) : null,
+          createdAt: new Date(row.createdAt),
+        },
+      });
+      inserted.observations += 1;
+    }
+  }
+
   console.log(
     `Patients inserted: ${inserted.patients}, updated: ${updated.patients}`
   );
@@ -237,6 +288,9 @@ async function main() {
   );
   console.log(
     `Lab results inserted: ${inserted.labs}, updated: ${updated.labs}`
+  );
+  console.log(
+    `Observations inserted: ${inserted.observations}, updated: ${updated.observations}`
   );
 }
 
