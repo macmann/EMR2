@@ -24,10 +24,10 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
   const { department, q } = parsed.data;
   const where: any = {};
   if (department) {
-    where.department = { contains: department, mode: 'insensitive' };
+    where.department = { contains: department };
   }
   if (q) {
-    where.name = { contains: q, mode: 'insensitive' };
+    where.name = { contains: q };
   }
   const doctors = await prisma.doctor.findMany({ where, orderBy: { name: 'asc' } });
   res.json(doctors);

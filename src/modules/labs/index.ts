@@ -52,7 +52,7 @@ router.get('/', requireAuth, requireRole('Doctor', 'Admin'), async (req: Request
     where.visit = { patientId: patient_id };
   }
   if (test_name) {
-    where.testName = { contains: test_name, mode: 'insensitive' };
+    where.testName = { contains: test_name };
   }
   if (min !== undefined || max !== undefined) {
     where.resultValue = {

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { requireAuth, type AuthRequest } from '../auth/index.js';
@@ -34,17 +34,20 @@ router.get(
     const q = req.query.query as string;
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
     const offset = parseInt(req.query.offset as string) || 0;
-    const lowerQ = q.toLowerCase();
-  const patients = await prisma.$queryRaw<Array<{ patientId: string; name: string; dob: Date; insurance: string | null }>>(
-    Prisma.sql`
-      SELECT "patientId", name, dob, insurance
-      FROM "Patient"
-      WHERE lower(name) % ${lowerQ}
-      ORDER BY similarity(lower(name), ${lowerQ}) DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `
-  );
-  console.log('patient search', { q, count: patients.length });
+
+    const patients = await prisma.patient.findMany({
+      where: {
+        name: {
+          contains: q,
+        },
+      },
+      orderBy: { name: 'asc' },
+      take: limit,
+      skip: offset,
+      select: { patientId: true, name: true, dob: true, insurance: true },
+    });
+
+    console.log('patient search', { q, count: patients.length });
     res.json(patients);
   }
 );
