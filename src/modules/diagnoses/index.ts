@@ -42,7 +42,7 @@ router.get('/', requireAuth, requireRole('Doctor', 'Admin'), async (req: Request
   const { q, from, to, limit = 20, offset = 0 } = parsed.data;
   const where: any = {};
   if (q) {
-    where.diagnosis = { contains: q, mode: 'insensitive' };
+    where.diagnosis = { contains: q };
   }
   if (from || to) {
     where.createdAt = {

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { requireAuth } from '../auth/index.js';
 
@@ -85,33 +85,65 @@ router.get('/cohort', requireAuth, async (req: Request, res: Response) => {
     return res.status(400).json({ error: parsed.error.flatten() });
   }
   const { test_name, op, value, months } = parsed.data;
-  const opMap: Record<string, string> = {
-    gt: '>',
-    gte: '>=',
-    lt: '<',
-    lte: '<=',
-    eq: '=',
-  };
   const from = new Date();
   from.setMonth(from.getMonth() - months);
-  const results = await prisma.$queryRaw<Array<{ patientId: string; name: string; value: number; date: Date; visitId: string }>>(
-    Prisma.sql`SELECT DISTINCT ON (p."patientId")
-        p."patientId", p.name, l."resultValue" AS value, l."testDate" AS date, l."visitId"
-      FROM "LabResult" l
-      JOIN "Visit" v ON l."visitId" = v."visitId"
-      JOIN "Patient" p ON v."patientId" = p."patientId"
-      WHERE l."testName" = ${test_name}
-        AND l."testDate" >= ${from}
-        AND l."resultValue" ${Prisma.raw(opMap[op])} ${value}
-        AND l."resultValue" IS NOT NULL
-        AND l."testDate" IS NOT NULL
-      ORDER BY p."patientId", l."testDate" DESC`
-  );
-  const cohort = results.map((r) => ({
-    patientId: r.patientId,
-    name: r.name,
-    lastMatchingLab: { value: r.value, date: r.date, visitId: r.visitId },
-  }));
+  const resultValueFilter: Record<string, number> =
+    op === 'gt'
+      ? { gt: value }
+      : op === 'gte'
+      ? { gte: value }
+      : op === 'lt'
+      ? { lt: value }
+      : op === 'lte'
+      ? { lte: value }
+      : { equals: value };
+
+  const labs = await prisma.labResult.findMany({
+    where: {
+      testName: test_name,
+      testDate: { not: null, gte: from },
+      resultValue: { ...resultValueFilter, not: null },
+    },
+    orderBy: [
+      { testDate: 'desc' },
+      { createdAt: 'desc' },
+    ],
+    include: {
+      visit: {
+        select: {
+          patientId: true,
+          patient: { select: { name: true } },
+        },
+      },
+    },
+  });
+
+  const seen = new Set<string>();
+  const cohort = labs
+    .filter((lab) => lab.visit && lab.visit.patient)
+    .reduce<Array<{ patientId: string; name: string; lastMatchingLab: { value: number; date: Date; visitId: string } }>>(
+      (acc, lab) => {
+        const patientId = lab.visit!.patientId;
+        if (seen.has(patientId)) {
+          return acc;
+        }
+        if (!lab.testDate || lab.resultValue === null) {
+          return acc;
+        }
+        seen.add(patientId);
+        acc.push({
+          patientId,
+          name: lab.visit!.patient?.name ?? '',
+          lastMatchingLab: {
+            value: lab.resultValue,
+            date: lab.testDate,
+            visitId: lab.visitId,
+          },
+        });
+        return acc;
+      },
+      []
+    );
   res.json(cohort);
 });
 

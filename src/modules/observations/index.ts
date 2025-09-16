@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient, Prisma, Observation } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { requireAuth, requireRole, type AuthRequest } from '../auth/index.js';
 import { logDataChange } from '../audit/index.js';
@@ -67,16 +67,16 @@ router.get('/visits/:id/observations', requireAuth, async (req: AuthRequest, res
   const { scope, author, before, order, limit = 20, offset = 0 } = parsed.data;
 
   if (scope === 'patient' && author === 'me' && before === 'visit') {
-    const orderSql = order === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
-    const rows = await prisma.$queryRaw<Observation[]>(Prisma.sql`
-      SELECT o.* FROM "Observation" o
-      JOIN "Visit" v ON o."visitId" = v."visitId"
-      WHERE o."patientId" = ${visit.patientId}
-        AND o."doctorId" = ${req.user!.userId}
-        AND v."visitDate" < ${visit.visitDate}
-      ORDER BY o."createdAt" ${orderSql}
-      LIMIT ${limit} OFFSET ${offset}
-    `);
+    const rows = await prisma.observation.findMany({
+      where: {
+        patientId: visit.patientId,
+        doctorId: req.user!.userId,
+        visit: { visitDate: { lt: visit.visitDate } },
+      },
+      orderBy: { createdAt: order },
+      take: limit,
+      skip: offset,
+    });
     return res.json(rows);
   }
 
@@ -133,18 +133,17 @@ router.get('/patients/:patientId/observations', requireAuth, async (req: AuthReq
   }
 
   if (author === 'me' && beforeDate) {
-    const orderSql = order === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
-    const excludeSql = exclude_visit ? Prisma.sql`AND o."visitId" <> ${exclude_visit}` : Prisma.empty;
-    const rows = await prisma.$queryRaw<Observation[]>(Prisma.sql`
-      SELECT o.* FROM "Observation" o
-      JOIN "Visit" v ON o."visitId" = v."visitId"
-      WHERE o."patientId" = ${patientId}
-        AND o."doctorId" = ${req.user!.userId}
-        ${excludeSql}
-        AND v."visitDate" < ${beforeDate}
-      ORDER BY o."createdAt" ${orderSql}
-      LIMIT ${limit} OFFSET ${offset}
-    `);
+    const rows = await prisma.observation.findMany({
+      where: {
+        patientId,
+        doctorId: req.user!.userId,
+        ...(exclude_visit ? { visitId: { not: exclude_visit } } : {}),
+        visit: { visitDate: { lt: beforeDate } },
+      },
+      orderBy: { createdAt: order },
+      take: limit,
+      skip: offset,
+    });
     return res.json(rows);
   }
 
